@@ -1,5 +1,5 @@
 resource "aws_launch_template" "this" {
-  for_each = local.launch_template_config
+  for_each = var.launch_template_config
 
   name        = format("%s-%s", each.value.launch_template_prefix, var.eks_cluster_id)
   description = "Launch Template for Amazon EKS Worker Nodes"
@@ -7,7 +7,7 @@ resource "aws_launch_template" "this" {
   image_id               = each.value.ami
   update_default_version = true
 
-  instance_type = try(length(each.value.instance_type), 0) == 0 ? null : each.value.instance_type
+  instance_type = try(coalesce(each.value.instance_type), null)
 
   user_data = base64encode(templatefile("${path.module}/templates/userdata-${each.value.launch_template_os}.tpl",
     {
@@ -18,13 +18,13 @@ resource "aws_launch_template" "this" {
       eks_cluster_id         = var.eks_cluster_id
       cluster_ca_base64      = data.aws_eks_cluster.eks.certificate_authority[0].data
       cluster_endpoint       = data.aws_eks_cluster.eks.endpoint
-      service_ipv6_cidr      = try(each.value.service_ipv6_cidr, "")
-      service_ipv4_cidr      = try(each.value.service_ipv4_cidr, "")
+      service_ipv6_cidr      = each.value.service_ipv6_cidr
+      service_ipv4_cidr      = each.value.service_ipv4_cidr
       format_mount_nvme_disk = each.value.format_mount_nvme_disk
   }))
 
   dynamic "iam_instance_profile" {
-    for_each = try(length(each.value.iam_instance_profile), 0) == 0 ? {} : { iam_instance_profile : each.value.iam_instance_profile }
+    for_each = { for p in compact(each.value.iam_instance_profile): iam_instance_profile => p }
     iterator = iam
     content {
       name = iam.value
@@ -48,24 +48,24 @@ resource "aws_launch_template" "this" {
       device_name = try(block_device_mappings.value.device_name, null)
 
       ebs {
-        delete_on_termination = try(block_device_mappings.value.delete_on_termination, true)
-        encrypted             = try(block_device_mappings.value.encrypted, true)
-        kms_key_id            = try(block_device_mappings.value.kms_key_id, null)
-        volume_size           = try(block_device_mappings.value.volume_size, null)
-        volume_type           = try(block_device_mappings.value.volume_type, null)
+        delete_on_termination = block_device_mappings.value.delete_on_termination
+        encrypted             = block_device_mappings.value.encrypted
+        kms_key_id            = block_device_mappings.value.kms_key_id
+        volume_size           = block_device_mappings.value.volume_size
+        volume_type           = block_device_mappings.value.volume_type
         iops                  = block_device_mappings.value.volume_type == "gp3" || block_device_mappings.value.volume_type == "io1" || block_device_mappings.value.volume_type == "io2" ? block_device_mappings.value.iops : null
         throughput            = block_device_mappings.value.volume_type == "gp3" ? block_device_mappings.value.throughput : null
       }
     }
   }
 
-  vpc_security_group_ids = try(length(each.value.vpc_security_group_ids), 0) == 0 ? null : each.value.vpc_security_group_ids
+  vpc_security_group_ids = each.value.vpc_security_group_ids
 
   dynamic "network_interfaces" {
     for_each = each.value.network_interfaces
     content {
-      associate_public_ip_address = try(network_interfaces.value.public_ip, false)
-      security_groups             = try(length(network_interfaces.value.security_groups), 0) == 0 ? null : network_interfaces.value.security_groups
+      associate_public_ip_address = network_interfaces.value.public_ip
+      security_groups             = network_interfaces.value.security_groups
     }
   }
 
@@ -81,11 +81,11 @@ resource "aws_launch_template" "this" {
     for_each = each.value.enable_metadata_options ? [1] : []
 
     content {
-      http_endpoint               = try(each.value.http_endpoint, "enabled")
-      http_tokens                 = try(each.value.http_tokens, "required")
-      http_put_response_hop_limit = try(each.value.http_put_response_hop_limit, 2)
-      http_protocol_ipv6          = try(each.value.http_protocol_ipv6, "disabled")
-      instance_metadata_tags      = try(each.value.instance_metadata_tags, "disabled")
+      http_endpoint               = each.value.http_endpoint
+      http_tokens                 = each.value.http_tokens
+      http_put_response_hop_limit = each.value.http_put_response_hop_limit
+      http_protocol_ipv6          = each.value.http_protocol_ipv6
+      instance_metadata_tags      = each.value.instance_metadata_tags
     }
   }
 
